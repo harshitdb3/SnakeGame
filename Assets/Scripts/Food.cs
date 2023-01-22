@@ -17,17 +17,17 @@ public class Food : MonoBehaviour
 
         if (collision.gameObject.CompareTag("Snake"))
         {
-            if(PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+            if(GameManager.Instance.isSinglePlayerMode)
             {
-                GameManager.Instance.MyPlayer.hasEatenFood = true;
+                GameManager.Instance.MyPlayer.SetHasEatenLocal();
                 GameManager.Instance.MyPlayer.LocalScore++;
                 Destroy(gameObject);
             }
             else if(PhotonNetwork.IsMasterClient == true)
             {
                 var pv = collision.GetComponent<PhotonView>();
+                pv.RPC("SetHasEatenRPC", RpcTarget.All, pv.OwnerActorNr);
                 GameManager.Instance.UpdatePlayerScore(pv.Owner, (int)pv.Owner.CustomProperties["PlayerScore"] + 1);
-                pv.RPC("SetHasEatenRPC", pv.Owner, pv.OwnerActorNr);
                 PhotonNetwork.Destroy(this.gameObject);
             }
 

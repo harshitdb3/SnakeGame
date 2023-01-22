@@ -50,17 +50,21 @@ public class GameManager : MonoBehaviourPunCallbacks,IInRoomCallbacks
     public static GameManager Instance;
     public bool isGameStarted = false;
     public List<TMP_Text> Scores;
-
+    public bool isSinglePlayerMode;
     public TMP_Text SinglePlayerScore;
 
     private void Awake()
     {
         Instance = this;
-
+        if (PlayerPrefs.GetString("GameMode", "SinglePlayer") == "SinglePlayer")
+        {
+            isSinglePlayerMode = true;
+        }
+        else isSinglePlayerMode = false;
     }
     public void Start()
     {
-        if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+        if (isSinglePlayerMode)
         {
             SinglePlayerUI.SetActive(true);
             MyPlayer = Instantiate(playerPrefab, playerSpawnPos, Quaternion.identity).GetComponent<Player>();
@@ -336,7 +340,7 @@ public class GameManager : MonoBehaviourPunCallbacks,IInRoomCallbacks
 
     private void Update()
     {
-        if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+        if (isSinglePlayerMode)
         {
             SinglePlayerScore.text = MyPlayer.LocalScore.ToString();
             return;
@@ -366,7 +370,7 @@ public class GameManager : MonoBehaviourPunCallbacks,IInRoomCallbacks
 
     public void OnMobileInput(int dir)
     {
-        if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+        if (isSinglePlayerMode)
         {
             if(MyPlayer != null)
             {

@@ -8,56 +8,65 @@ public class Player : MonoBehaviourPun
 {
     [SerializeField]
     private float moveDelay = 0.8f;
+
     [SerializeField]
     SnakeBody snakeBodyP;
+
     [SerializeField]
     Direction currDirection = Direction.Right;
+
     List<SnakeBody> snakeBodys = new List<SnakeBody>();
-    public SnakeBody headSnake;
-    public bool hasEatenFood = false;
+
+    List<Vector3> lastPosBuffer = new List<Vector3>();
+
     PhotonView PV;
+
     public int LocalScore = 0;
+
     private void Awake()
     {
         PV = GetComponent<PhotonView>();
     }
     private void Start()
     {
-        if (PlayerPrefs.GetString("GameMode") == "SinglePlayer" || PV.IsMine)
-        {
-            StartMoveSnake();
-        }
-    }
-
-
-    public bool HasCollisionWithSnakeBody()
-    {
- 
-        for (int i = 1; i < snakeBodys.Count;i++)
-        {
-            if (headSnake.transform.position == snakeBodys[i].transform.position) return true;
-        }
-        return false;
-    }
-
-    public void StartMoveSnake()
-    {
-
         SnakeBody startSnakeBody;
-        if(PlayerPrefs.GetString("GameMode") == "SinglePlayer")
-        {
-            startSnakeBody = Instantiate(snakeBodyP, transform.position, Quaternion.identity).GetComponent<SnakeBody>();
-        }
-        else
-        {
-            startSnakeBody = PhotonNetwork.Instantiate("SnakeBody", transform.position, Quaternion.identity).GetComponent<SnakeBody>();
-        }
-        headSnake = startSnakeBody;
-        headSnake.thisPlayer = this;
+        startSnakeBody = GetComponent<SnakeBody>();
+        startSnakeBody.index = 0;
+        startSnakeBody.thisPlayer = this;
+        startSnakeBody.lastdirection = currDirection;
         snakeBodys.Add(startSnakeBody);
-        headSnake.lastdirection = currDirection;
-        StartCoroutine(MoveSnake());
-        
+
+        if(PV.IsMine || GameManager.Instance.isSinglePlayerMode)
+        {
+            StartCoroutine(MoveSnake());
+        }
+
+    }
+
+
+    IEnumerator MoveSnake()
+    {
+        yield return new WaitUntil(() => GameManager.Instance.isGameStarted == true);
+
+        while (GameManager.Instance.isGameOver == false)
+        {
+
+            Vector3 currPos = getNextPos(transform.position, currDirection);
+            UpdateLastPosVector();
+            snakeBodys[0].transform.position = currPos;
+            snakeBodys[0].lastdirection = currDirection;
+            UpdateTails();
+            CheckCollisionWithSelf();
+
+            if (PhotonNetwork.IsConnected)
+                PV.RPC("OnPositionChange", RpcTarget.All, (Vector3)transform.position, PV.OwnerActorNr);
+
+
+
+            yield return new WaitForSeconds(moveDelay);
+        }
+
+
     }
 
     private void OnCollisionEnter2D(Collision2D collision)
@@ -65,7 +74,7 @@ public class Player : MonoBehaviourPun
 
         if (collision.gameObject.CompareTag("Wall"))
         {
-            if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+            if (GameManager.Instance.isSinglePlayerMode)
             {
                 GameManager.Instance.OnPlayerDied(-1);
             }
@@ -90,11 +99,31 @@ public class Player : MonoBehaviourPun
 
     }
 
+    public void SetHasEatenLocal()
+    {
+
+        SnakeBody newBlock;
+        newBlock = Instantiate(snakeBodyP, GetNewBodySpawnLocation(snakeBodys[snakeBodys.Count - 1].transform.position, snakeBodys[snakeBodys.Count - 1].lastdirection), Quaternion.identity).GetComponent<SnakeBody>();
+        newBlock.thisPlayer = this;
+        newBlock.lastdirection = snakeBodys[snakeBodys.Count - 1].lastdirection;
+        snakeBodys.Add(newBlock);
+        newBlock.index = snakeBodys.Count;
+
+    }
+
     [PunRPC]
     public void SetHasEatenRPC(int Actorno)
     {
-        if(PV.IsMine && Actorno == photonView.OwnerActorNr)
-        hasEatenFood = true;
+        if(Actorno == photonView.OwnerActorNr)
+        {
+
+            SnakeBody newBlock;
+            newBlock = Instantiate(snakeBodyP, GetNewBodySpawnLocation(snakeBodys[snakeBodys.Count - 1].transform.position, snakeBodys[snakeBodys.Count - 1].lastdirection), Quaternion.identity).GetComponent<SnakeBody>();
+            newBlock.thisPlayer = this;
+            newBlock.lastdirection = snakeBodys[snakeBodys.Count - 1].lastdirection;
+            snakeBodys.Add(newBlock);
+            newBlock.index = snakeBodys.Count;
+        }
     }
     //Helper RPC
     [PunRPC]
@@ -117,71 +146,61 @@ public class Player : MonoBehaviourPun
         GameManager.Instance.OnPlayerDied(playerActor);
     }
 
-    IEnumerator MoveSnake()
+    [PunRPC]
+    public void OnPositionChange(Vector3 pos,int ActorNO)
     {
-        yield return new WaitUntil(() => GameManager.Instance.isGameStarted == true);
-
-        while(GameManager.Instance.isGameOver == false)
+        if(!PV.IsMine && photonView.OwnerActorNr == ActorNO && snakeBodys[0].transform.position != pos)
         {
+            UpdateLastPosVector();
+            snakeBodys[0].transform.position = pos;
+            UpdateTails();
+            CheckCollisionWithSelf();
+        }
 
-            Vector3 currPos = getNextPos(transform.position, currDirection);
+    }
 
-            for (int i = snakeBodys.Count - 1; i > 0; i--)
+    void CheckCollisionWithSelf()
+    {
+
+        for (int i = 1; i < snakeBodys.Count; i++)
+        {
+            if (snakeBodys[0].transform.position == snakeBodys[i].transform.position)
             {
-                snakeBodys[i].transform.position = snakeBodys[i - 1].transform.position;
-                snakeBodys[i].lastdirection = snakeBodys[i - 1].lastdirection;
-            }
-            transform.position = currPos;
-            snakeBodys[0].transform.position = currPos;
-            snakeBodys[0].lastdirection = currDirection;
 
-            if (hasEatenFood)
-            {
-                
-                hasEatenFood = false;
-
-                SnakeBody newBlock;
-                if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
+                if (GameManager.Instance.isSinglePlayerMode)
                 {
-                     newBlock = Instantiate(snakeBodyP, GetNewBodySpawnLocation(snakeBodys[snakeBodys.Count - 1].transform.position, snakeBodys[snakeBodys.Count - 1].lastdirection), Quaternion.identity).GetComponent<SnakeBody>();
+
+                    GameManager.Instance.OnPlayerDied(-1);
                 }
                 else
                 {
-                     newBlock = PhotonNetwork.Instantiate("SnakeBody", GetNewBodySpawnLocation(snakeBodys[snakeBodys.Count - 1].transform.position, snakeBodys[snakeBodys.Count - 1].lastdirection), Quaternion.identity).GetComponent<SnakeBody>();
+                    PV.RPC("OnPlayerDied", RpcTarget.All, PV.OwnerActorNr);
                 }
-                newBlock.thisPlayer = this;
-                newBlock.lastdirection = snakeBodys[snakeBodys.Count - 1].lastdirection;
-                snakeBodys.Add(newBlock);
+
             }
-
-            //CheckSelfCollision
-            if(snakeBodys.Count > 2)
-            {
-                for (int i = 1; i < snakeBodys.Count; i++)
-                {
-                    if(currPos == snakeBodys[i].transform.position)
-                    {
-
-                        if (PlayerPrefs.GetString("GameMode") == "SinglePlayer")
-                        {
-  
-                                GameManager.Instance.OnPlayerDied(-1);
-                        }
-                        else
-                        {
-                            PV.RPC("OnPlayerDied", RpcTarget.All, PV.OwnerActorNr);
-                        }
-                       
-                    }
-                }
-            }
-
-
-            yield return new WaitForSeconds(moveDelay);
         }
-
-
     }
+
+    void UpdateLastPosVector()
+    {
+        lastPosBuffer = new List<Vector3>(snakeBodys.Count);
+        for (int i = 0; i < snakeBodys.Count; i++)
+        {
+            lastPosBuffer.Insert(i,snakeBodys[i].transform.position);
+        }
+    }
+
+    private void UpdateTails()
+    {
+        //Update Snake Tail Positions
+        for (int i = 1; i < snakeBodys.Count; i++)
+        {
+            snakeBodys[i].transform.position = lastPosBuffer[i - 1];
+            snakeBodys[i].lastdirection = snakeBodys[i - 1].lastdirection;
+        }
+    }
+
+
 
     Vector3 GetNewBodySpawnLocation(Vector3 posLast,Direction direction)
     {
@@ -250,9 +269,12 @@ public class Player : MonoBehaviourPun
             }
         }
     }
+
     private void Update()
     {
-        if(PlayerPrefs.GetString("GameMode") == "SinglePlayer" && GameManager.Instance.isGameOver == false)
+
+
+        if (GameManager.Instance.isSinglePlayerMode && GameManager.Instance.isGameOver == false)
         {
             TakeInput();
         }

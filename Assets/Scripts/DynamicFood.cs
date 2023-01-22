@@ -17,7 +17,7 @@ public class DynamicFood : Food
     }
     private void Start()
     {
-        if(PlayerPrefs.GetString("GameMode") == "SinglePlayer" || PhotonNetwork.IsMasterClient)
+        if(GameManager.Instance.isSinglePlayerMode || PhotonNetwork.IsMasterClient)
         {
 
             if (Random.value > 0.5)
